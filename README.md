@@ -16,6 +16,8 @@ LunarReg is a lunar image-registration proof of concept for Chandrayaan and LRO 
 
 The browser registration baseline works immediately. Static download links also work without any environment variables.
 
+The root `.vercelignore` intentionally excludes `inference-service/` from the Vercel deployment. Without this exclusion, Vercel detects the nested Python requirements and attempts to install PyTorch/Ultralytics during the frontend build. The inference folder remains in Git and is deployed separately through Docker.
+
 ### GitHub + Vercel
 
 1. Create an empty GitHub repository.
@@ -78,4 +80,3 @@ Registration returns a base64 PNG, a 3×3 homography, correspondence coordinates
 ## Data credits
 
 Credit ISRO/ISSDC for Chandrayaan mission imagery and NASA/GSFC/Arizona State University for LROC imagery. The supplied regional archive contains additional source notes and paper citations. Confirm the applicable terms before public or commercial redistribution. LRO crater tiles are described in the supplied material as originating from Fairweather et al., Zenodo 6386198 (CC BY 4.0).
-

@@ -1,0 +1,10 @@
+# The Python/YOLO service is deployed separately with Docker on Render/RunPod.
+# Keeping it out of the Vercel build prevents automatic installation of
+# PyTorch, Ultralytics and OpenCV during the static frontend deployment.
+inference-service/
+
+# Local-only project metadata
+render.yaml
+**/__pycache__/
+**/*.pyc
+

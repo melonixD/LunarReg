@@ -11,7 +11,7 @@ This optional FastAPI service provides the compute that should not run inside a 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.render.txt
 uvicorn app:app --reload --port 8000
 ```
 
