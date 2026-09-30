@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="LunarReg: an honest, working lunar image-registration demonstrator for Chandrayaan and LRO imagery.">
+  <title>LunarReg — Lunar Image Registration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <header class="nav wrap">
+    <a class="brand" href="#top" aria-label="LunarReg home">
+      <span class="moon-mark" aria-hidden="true"></span>
+      <span><strong>LunarReg</strong><small>TIME FOR MOON</small></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#workspace">Workspace</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#resources">Resources</a>
+      <a class="nav-cta" href="#workspace">Try demo</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <div class="eyebrow">SIH lunar image-registration prototype</div>
+        <h1>Align the Moon,<br><em>pixel by pixel.</em></h1>
+        <p>LunarReg registers a moving lunar image against a fixed reference, reports measured alignment quality, and exports the result. It runs locally in your browser today and can connect to the bundled SIFT + MAGSAC and crater-detection service.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#workspace">Start registration <span>→</span></a>
+          <a class="button ghost" href="/docs/LunarReg_Model_Training_Handoff.pdf" download>Download training handbook</a>
+        </div>
+        <div class="status-line">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="model-status">Checking processing mode…</span>
+        </div>
+      </div>
+      <div class="hero-visual" aria-label="Illustration of two lunar image frames being aligned">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="lunar-disc"><span class="crater c1"></span><span class="crater c2"></span><span class="crater c3"></span><span class="crater c4"></span></div>
+        <div class="frame frame-a"><span>FIXED</span></div>
+        <div class="frame frame-b"><span>MOVING</span></div>
+        <div class="crosshair">+</div>
+      </div>
+    </section>
+
+    <section class="proof-strip">
+      <div class="wrap proof-grid">
+        <div><strong>2</strong><span>execution modes</span></div>
+        <div><strong>6</strong><span>measured metrics</span></div>
+        <div><strong>248</strong><span>labeled LRO tiles</span></div>
+        <div><strong>0</strong><span>fabricated model claims</span></div>
+      </div>
+    </section>
+
+    <section id="workspace" class="section wrap">
+      <div class="section-heading">
+        <div><span class="kicker">WORKSPACE / 01</span><h2>Registration console</h2></div>
+        <p>Choose two overlapping images or load the included demonstration pair. The browser baseline estimates translation; the optional inference service adds SIFT homography registration.</p>
+      </div>
+
+      <div class="workspace-grid">
+        <article class="upload-card">
+          <div class="card-top"><span>FIXED IMAGE</span><span class="file-state" id="fixed-state">Required</span></div>
+          <label class="drop-zone" id="fixed-box" for="fixed-input">
+            <input id="fixed-input" type="file" accept="image/png,image/jpeg,image/webp,image/tiff">
+            <img id="fixed-preview" alt="Fixed image preview">
+            <span class="drop-copy"><b>Choose reference image</b><small>PNG, JPEG, WebP or TIFF</small></span>
+          </label>
+        </article>
+        <article class="upload-card">
+          <div class="card-top"><span>MOVING IMAGE</span><span class="file-state" id="moving-state">Required</span></div>
+          <label class="drop-zone" id="moving-box" for="moving-input">
+            <input id="moving-input" type="file" accept="image/png,image/jpeg,image/webp,image/tiff">
+            <img id="moving-preview" alt="Moving image preview">
+            <span class="drop-copy"><b>Choose image to align</b><small>Use an overlapping lunar frame</small></span>
+          </label>
+        </article>
+        <aside class="control-card">
+          <span class="kicker">PROCESSING</span>
+          <label for="engine-select">Engine</label>
+          <select id="engine-select">
+            <option value="auto">Auto — best available</option>
+            <option value="browser">Browser baseline</option>
+            <option value="backend">SIFT + MAGSAC service</option>
+          </select>
+          <div class="control-notes">
+            <div><span>Browser</span><b>Translation</b></div>
+            <div><span>Backend</span><b>Homography</b></div>
+            <div><span>Privacy</span><b>Local in baseline mode</b></div>
+          </div>
+          <button id="load-sample" class="button ghost wide" type="button">Load included sample</button>
+          <button id="start-matching" class="button primary wide" type="button">Run registration →</button>
+          <p class="micro" id="run-message" role="status">No images selected.</p>
+        </aside>
+      </div>
+
+      <div id="results" class="results hidden" aria-live="polite">
+        <div class="result-head">
+          <div><span class="kicker">RESULT / REAL COMPUTATION</span><h3 id="result-title">Registered output</h3></div>
+          <button id="download-result" class="button ghost" type="button">Download PNG</button>
+        </div>
+        <div class="result-layout">
+          <div class="canvas-shell"><canvas id="registered-canvas"></canvas><img id="registered-image" alt="Registered output"></div>
+          <div class="metrics">
+            <div class="metric"><span>RMSE</span><strong id="metric-rmse">—</strong><small>pixel / intensity error</small></div>
+            <div class="metric"><span>Inlier matches</span><strong id="metric-inliers">—</strong><small>feature or sampled points</small></div>
+            <div class="metric"><span>Inlier ratio</span><strong id="metric-ratio">—</strong><small>higher is better</small></div>
+            <div class="metric"><span>Median error</span><strong id="metric-median">—</strong><small>pixels or intensity</small></div>
+            <div class="metric"><span>Max error</span><strong id="metric-max">—</strong><small>pixels or intensity</small></div>
+            <div class="metric"><span>Coverage</span><strong id="metric-coverage">—</strong><small>overlapping image area</small></div>
+          </div>
+        </div>
+        <div class="result-note" id="result-note"></div>
+      </div>
+
+      <div class="crater-lab">
+        <div>
+          <span class="kicker">OPTIONAL MODULE</span>
+          <h3>Explore the supplied crater detector</h3>
+          <p>The YOLOv8n weights are included in the Docker service. Connect that service, upload a lunar image, and receive real bounding boxes—not placeholder detections.</p>
+        </div>
+        <label class="mini-upload" for="crater-input"><input id="crater-input" type="file" accept="image/png,image/jpeg,image/webp"><span id="crater-file">Choose image</span></label>
+        <button id="detect-craters" class="button ghost" type="button">Detect craters</button>
+        <p id="crater-message" class="micro">Requires the connected inference service.</p>
+        <img id="crater-result" class="crater-result" alt="Crater detections">
+      </div>
+    </section>
+
+    <section id="architecture" class="section tint">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="kicker">SYSTEM / 02</span><h2>One interface, two compute paths</h2></div>
+          <p>Vercel hosts the user interface and lightweight proxy. GPU-heavy Python inference is intentionally separated so the project remains deployable and transparent.</p>
+        </div>
+        <div class="flow">
+          <article><span>01</span><h3>Prepare</h3><p>Normalize contrast, resize safely, and validate image overlap.</p></article><i>→</i>
+          <article><span>02</span><h3>Match</h3><p>Use local translation estimation or remote SIFT feature matching.</p></article><i>→</i>
+          <article><span>03</span><h3>Verify</h3><p>Reject outliers with MAGSAC and report errors plus spatial coverage.</p></article><i>→</i>
+          <article><span>04</span><h3>Export</h3><p>Download registered imagery, metrics, and correspondence data.</p></article>
+        </div>
+        <div class="truth-panel">
+          <div><span class="truth-icon">!</span><strong>Prototype status</strong></div>
+          <p>The supplied registration network has not been trained, so this package does not claim learned sub-pixel performance. It includes a reproducible training kit, a classical working baseline, and a pretrained crater detector with documented LRO-to-Chandrayaan domain limitations.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="resources" class="section wrap">
+      <div class="section-heading">
+        <div><span class="kicker">DOWNLOADS / 03</span><h2>Data and training kit</h2></div>
+        <p>Everything received for this project is packaged here. Large archives are downloaded directly and are not loaded into the browser until requested.</p>
+      </div>
+      <div class="resource-grid">
+        <a class="resource-card featured" href="/docs/LunarReg_Model_Training_Handoff.pdf" download><span>PDF · HANDBOOK</span><h3>Model training handoff</h3><p>Math, loss design, training stages, evaluation and deployment notes.</p><b>Download ↓</b></a>
+        <a class="resource-card" href="/downloads/LunarReg-Training-Kit-v1.zip" download><span>ZIP · CODE</span><h3>Registration training kit</h3><p>Ready-to-run PyTorch pipeline, configs and tests for model training.</p><b>Download ↓</b></a>
+        <a class="resource-card" href="/downloads/training_tiles.zip" download><span>ZIP · 248 TILES</span><h3>LRO crater training tiles</h3><p>YOLO-style LRO NAC imagery and labels from the supplied archive.</p><b>Download ↓</b></a>
+        <a class="resource-card" href="/downloads/lunar_crater_detector.zip" download><span>ZIP · MODEL</span><h3>Crater detector</h3><p>YOLOv8n weights, prediction script, requirements and documentation.</p><b>Download ↓</b></a>
+        <a class="resource-card" href="/downloads/CH3_region_69S_32E_dataset.zip" download><span>ZIP · REGION</span><h3>69°S, 32°E image set</h3><p>Supplied OHRC, TMC-2, IIRS and LRO contextual images and references.</p><b>Download ↓</b></a>
+        <a class="resource-card" href="https://chmapbrowse.issdc.gov.in/" target="_blank" rel="noreferrer"><span>OFFICIAL · ISSDC</span><h3>Chandrayaan data portal</h3><p>Browse official mission products; account access may be required.</p><b>Open portal ↗</b></a>
+      </div>
+      <p class="attribution">Data attribution: ISRO/ISSDC Chandrayaan mission imagery; NASA/GSFC/Arizona State University LROC imagery. Review the included source archive and README files before redistribution or commercial use.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner"><div class="brand small"><span class="moon-mark"></span><span><strong>LunarReg</strong><small>TIME FOR MOON</small></span></div><p>Open proof-of-concept · Built for reproducible lunar registration research</p><a href="/api/health">API health</a></div>
+  </footer>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

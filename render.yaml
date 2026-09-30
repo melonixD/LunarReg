@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: lunarreg-inference
+    runtime: docker
+    dockerContext: ./inference-service
+    dockerfilePath: ./inference-service/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: MAX_IMAGE_SIDE
+        value: "2400"

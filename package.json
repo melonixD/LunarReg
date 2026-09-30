@@ -1,0 +1,11 @@
+{
+  "name": "lunarreg-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lunar image registration demonstrator for Chandrayaan and LRO imagery",
+  "scripts": {
+    "dev": "vercel dev",
+    "check": "node --check assets/app.js && node --check api/health.js && node --check api/model-status.js && node --check api/register.js && node --check api/detect-craters.js"
+  }
+}
