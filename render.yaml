@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: free
     dockerContext: .
-    dockerfilePath: ./Dockerfile.render
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     envVars:
       - key: CORS_ORIGINS

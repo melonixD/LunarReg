@@ -1,250 +1,512 @@
-# LunarReg
+# LunarReg — SIH 2026 Lunar Image Registration
 
-LunarReg is a working lunar image-registration proof of concept for aligning Chandrayaan optical imagery with lunar reference imagery such as LRO NAC. It combines a deployable research interface, a classical geometric registration baseline, a supplied crater-detection model, downloadable datasets, and a separate training kit for the future learned registration model.
+LunarReg is our Smart India Hackathon 2026 solution for finding accurate, spatially distributed correspondences between Chandrayaan-2 optical images and lunar reference imagery such as LRO NAC and SELENE.
 
-This repository is ready for a **single-service Render deployment**. The same Render URL serves the website and the Python inference API.
+The system is designed for the real difficulties of lunar imaging:
 
-> **Current scientific status:** the learned registration network has not yet been trained on a validated Chandrayaan–LRO paired dataset. The deployed SIFT + MAGSAC registration is real and functional, but the project does not claim competition-grade sub-pixel performance until the trained model is evaluated independently.
+- large illumination changes caused by different Sun azimuth and elevation;
+- viewpoint and perspective differences;
+- large scale and resolution differences between sensors;
+- weak texture, repeated craters and deep shadows;
+- cross-sensor appearance differences among OHRC, TMC-2, IIRS, LRO and SELENE;
+- the need for reliable matches over the complete image instead of one small region.
+
+Our solution combines a trainable detector-free matcher with robust geometry and sub-pixel local refinement. A working SIFT + MAGSAC baseline is already included for the website demonstration. The learned registration model must be trained and independently validated before competition-level accuracy is claimed.
 
 ---
 
-## 1. What works right now
+## 1. Problem statement in simple words
 
-| Component | Status | What it does |
+We receive two images of approximately the same lunar area:
+
+- **Fixed/reference image:** the coordinate system we want to preserve.
+- **Moving/source image:** the image that must be geometrically transformed.
+
+The software must:
+
+1. identify the same lunar locations in both images;
+2. reject incorrect crater or shadow matches;
+3. estimate the geometric transformation;
+4. warp the moving image into the reference coordinate system;
+5. refine the correspondence positions to fractional-pixel precision;
+6. return match coordinates, registered imagery and objective metrics;
+7. maintain a uniform match distribution across the scene.
+
+The final output is not merely a visually blended picture. It contains the transformation matrix, accepted correspondences, confidence values, inlier mask and evaluation measurements.
+
+---
+
+## 2. Proposed SIH solution
+
+```mermaid
+flowchart TD
+    A[Chandrayaan source image] --> C[Preprocessing and tiling]
+    B[LRO or SELENE reference] --> C
+    C --> D[Shared CNN feature encoder]
+    D --> E[Self and cross attention]
+    E --> F[Mutual dense correspondences]
+    F --> G[Uniform spatial selection]
+    G --> H[USAC MAGSAC homography]
+    H --> I[Gradient NCC sub-pixel refinement]
+    I --> J[Registered image and metrics]
+```
+
+The system is hybrid because no single method solves the full problem reliably:
+
+- the neural matcher learns cross-sensor visual relationships;
+- MAGSAC enforces geometric consistency;
+- grid selection prevents all matches from concentrating around one crater;
+- gradient NCC provides local fractional-pixel refinement;
+- the classical SIFT route remains available as a fallback.
+
+---
+
+## 3. Main innovations and USP
+
+### 3.1 Physics-aware Perlin illumination augmentation
+
+Fractal Perlin fields simulate broad, spatially smooth illumination variation without changing the geometric correspondence labels. This is more realistic for changing lunar illumination than independent random pixel noise.
+
+### 3.2 Detector-free matching
+
+Traditional keypoint detectors may fail when shadows or sensor response change. Our model treats the images as feature grids and learns direct token-to-token correspondence.
+
+### 3.3 Neural matching plus mathematical verification
+
+The network proposes matches, but it is not blindly trusted. Mutual matching, spatial balancing and MAGSAC verify the correspondences before a transformation is accepted.
+
+### 3.4 Uniform correspondence coverage
+
+An 8×8 spatial grid limits the number of matches selected from each cell. This improves transformation stability and directly addresses the requirement for uniformly distributed matches.
+
+### 3.5 Sub-pixel refinement
+
+Coarse neural coordinates are refined with gradient-based normalized cross-correlation and parabolic peak fitting. This produces fractional coordinates rather than integer-only locations.
+
+### 3.6 Honest confidence and failure handling
+
+The system reports inlier count, inlier ratio, spatial coverage and reprojection error. It can reject pairs with insufficient overlap instead of presenting a false successful result.
+
+---
+
+## 4. Complete system architecture
+
+| Stage | Method | Purpose |
 |---|---|---|
-| Web interface | Working | Uploads fixed/moving images, shows outputs and measured metrics |
-| Browser baseline | Working | Estimates translation locally without sending images to a server |
-| Render registration API | Working | Uses SIFT, Lowe-ratio filtering, USAC_MAGSAC and homography warping |
-| Crater detector | Working | Runs the supplied YOLOv8n weights and returns boxes plus an annotated image |
-| Sample pair | Included | Loads a prepared LRO demonstration pair with one click |
-| Training handbook | Included | 21-page PDF covering the mathematics and training plan |
-| Registration training kit | Included | PyTorch code, Perlin augmentation, configs, tests and inference scripts |
-| Learned registration checkpoint | Not trained | Must be trained with genuine, geographically separated lunar pairs |
-
-The interface deliberately does **not** invent mineral analysis, landing-safety scores or sub-pixel accuracy.
-
----
-
-## 2. Repository map
-
-```text
-LunarReg/
-├── index.html                       Website
-├── assets/                          CSS and browser registration code
-├── samples/                         Included demonstration pair
-├── docs/
-│   └── LunarReg_Model_Training_Handoff.pdf
-├── downloads/
-│   ├── LunarReg-Training-Kit-v1.zip
-│   ├── training_tiles.zip
-│   ├── lunar_crater_detector.zip
-│   └── CH3_region_69S_32E_dataset.zip
-├── inference-service/
-│   ├── app.py                       FastAPI registration + crater API
-│   ├── models/crater_detector.pt
-│   └── requirements.render.txt
-├── Dockerfile.render                Complete website + API image
-├── render.yaml                      One-click Render Blueprint
-├── api/                              Optional Vercel proxy functions
-└── vercel.json                       Optional frontend-only Vercel config
-```
+| Input validation | Format, dimensions, dynamic range | Reject unreadable or empty products |
+| Preprocessing | Grayscale, percentile stretch/CLAHE, normalization | Reduce radiometric differences |
+| Tiling | 512×512 tiles with overlap | Make large orbital products trainable |
+| Synthetic geometry | Random projective homography | Provide exact correspondence labels |
+| Illumination augmentation | Gamma, directional light, Perlin, blur, noise | Model lunar appearance variation |
+| Feature extraction | Shared four-stage CNN | Produce sensor-tolerant descriptors |
+| Context exchange | Self-attention and cross-attention | Compare global structures between images |
+| Matching | Dual-softmax and mutual nearest neighbour | Generate confident correspondences |
+| Spatial control | 8×8 grid, confidence-ranked selection | Maintain uniform match distribution |
+| Robust geometry | USAC_MAGSAC homography | Reject outliers and estimate alignment |
+| Local refinement | Gradient NCC + quadratic fitting | Refine to fractional-pixel positions |
+| Evaluation | RMSE, median/max error, inliers, ratio, coverage | Quantify registration quality |
 
 ---
 
-## 3. Deploy the complete project on Render
+## 5. Preprocessing pipeline
 
-### Recommended: Render Blueprint
+### 5.1 Product preparation
 
-The repository must contain `render.yaml` at its top level—not inside another folder.
+Keep the original PDS/GeoTIFF products and metadata unchanged in an archival directory. Create analysis-ready images separately.
 
-1. Extract the provided project ZIP.
-2. Open the extracted `LunarReg-Vercel` folder.
-3. Copy **the contents inside that folder** into the root of your GitHub repository.
-4. Commit and push the changes.
-5. Open [Render](https://dashboard.render.com/).
-6. Select **New → Blueprint**.
-7. Connect the GitHub repository containing LunarReg.
-8. Render will find `render.yaml` and show one service named `lunarreg`.
-9. Approve the Blueprint and start deployment.
-10. Wait for the first Docker build to finish. The initial build is slower because PyTorch, OpenCV and Ultralytics must be installed.
+Recommended steps:
 
-The service health check is:
+1. read radiometrically corrected products when available;
+2. preserve coordinate reference and acquisition metadata;
+3. remove invalid borders and label areas;
+4. convert to a consistent grayscale floating range ([0,1]);
+5. apply robust percentile normalization or CLAHE;
+6. resample only when required and record the scale factor;
+7. split large products into overlapping 512×512 tiles;
+8. discard blank or extremely low-variance tiles;
+9. associate every tile with the parent product and lunar footprint.
+
+### 5.2 Normalization
+
+For image intensity (I), robust min-max normalization can be written as:
+
+$$
+I_n(x,y)=\operatorname{clip}\left(\frac{I(x,y)-p_2}{p_{98}-p_2+\epsilon},0,1\right)
+$$
+
+where (p_2) and (p_{98}) are the 2nd and 98th intensity percentiles. This is less sensitive to extreme shadows and saturated pixels than raw min-max scaling.
+
+### 5.3 Geographic data split
+
+The train, validation and test sets must be separated by lunar geography or parent mosaic. Tiles from the same crater or source mosaic must not occur in multiple splits.
+
+A recommended split is:
+
+- 70% geographic regions for training;
+- 15% separate regions for validation;
+- 15% completely unseen regions for final testing.
+
+A random tile split is not acceptable because adjacent tiles can contain almost identical terrain.
+
+---
+
+## 6. Actual model architecture
+
+The training ZIP implements `LunarDenseMatcher`, a detector-free dense coarse matcher.
+
+### 6.1 Shared feature encoder
+
+Both images pass through the same CNN weights. The encoder contains four `ConvNormAct` stages with channel widths:
 
 ```text
-/api/health
+1 → 32 → 48 → 72 → 128
 ```
 
-After deployment, open the generated URL:
+Each stage contains:
 
 ```text
-https://lunarreg-xxxx.onrender.com
+3×3 convolution with stride 2
+GroupNorm
+GELU
+3×3 convolution
+GroupNorm
+GELU
 ```
 
-### Manual Render setup if Blueprint is unavailable
+Four stride-2 stages produce an overall stride of 16. A 512×512 input therefore becomes a 32×32 feature grid containing 1024 tokens.
 
-Create a **Web Service** with these settings:
+GroupNorm is used instead of BatchNorm because effective training batches may be small on high-resolution images.
 
-| Setting | Value |
+### 6.2 Two-dimensional positional encoding
+
+The flattened feature tokens receive sine/cosine position encodings for both horizontal and vertical coordinates:
+
+$$
+PE(x,y)=\left[\sin(x\omega),\cos(x\omega),\sin(y\omega),\cos(y\omega)\right]
+$$
+
+This allows attention layers to reason about both appearance and position.
+
+### 6.3 Attention blocks
+
+Each block performs:
+
+1. self-attention within the source image;
+2. self-attention within the reference image;
+3. source-to-reference cross-attention;
+4. reference-to-source cross-attention;
+5. independent feed-forward networks with residual connections.
+
+The supplied main configurations use:
+
+```text
+Feature dimension: 128
+Attention heads: 4
+Attention blocks: 2
+Dropout: 0.0
+```
+
+For one attention head:
+
+$$
+\operatorname{Attention}(Q,K,V)=\operatorname{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+$$
+
+Cross-attention lets a source token obtain context directly from possible reference locations.
+
+### 6.4 Descriptor projection and similarity
+
+The output tokens are linearly projected and L2 normalized:
+
+$$
+\hat f_i=\frac{Wf_i}{\|Wf_i\|_2},\qquad
+\hat g_j=\frac{Wg_j}{\|Wg_j\|_2}
+$$
+
+The similarity logit between source token (i) and reference token (j) is:
+
+$$
+S_{ij}=\tau\hat f_i^T\hat g_j
+$$
+
+where (	au) is a learned positive scale constrained to a stable range.
+
+### 6.5 Dual-softmax confidence
+
+The matching probability is calculated in both directions:
+
+$$
+P_{ij}=\operatorname{softmax}_{j}(S_{ij})\cdot
+\operatorname{softmax}_{i}(S_{ij})
+$$
+
+A match is retained only when:
+
+- it is the best source-to-reference choice;
+- it is also the best reference-to-source choice;
+- its confidence exceeds the selected threshold.
+
+This mutual-nearest check removes many ambiguous crater matches.
+
+---
+
+## 7. Geometric mathematics
+
+### 7.1 Homography model
+
+For corresponding pixel coordinates (mathbf p=(x,y,1)^T) and (mathbf p'=(x',y',1)^T):
+
+$$
+\mathbf p'\sim H\mathbf p
+$$
+
+where:
+
+$$
+H=
+\begin{bmatrix}
+h_{11}&h_{12}&h_{13}\\
+h_{21}&h_{22}&h_{23}\\
+h_{31}&h_{32}&h_{33}
+\end{bmatrix}
+$$
+
+The Euclidean projection is:
+
+$$
+x'=\frac{h_{11}x+h_{12}y+h_{13}}{h_{31}x+h_{32}y+h_{33}},\qquad
+y'=\frac{h_{21}x+h_{22}y+h_{23}}{h_{31}x+h_{32}y+h_{33}}
+$$
+
+A homography has eight independent degrees of freedom because it is defined up to scale. At least four non-collinear correspondence pairs are required, but a reliable solution needs many distributed matches.
+
+### 7.2 Robust MAGSAC estimation
+
+Incorrect network/keypoint matches are outliers. USAC_MAGSAC repeatedly generates transformation hypotheses, evaluates geometric residuals and estimates the model using robust noise-scale handling.
+
+The reprojection error for match (i) is:
+
+$$
+e_i=\left\|\pi(H\mathbf p_i)-\mathbf p'_i\right\|_2
+$$
+
+where (pi) converts homogeneous coordinates back to Euclidean coordinates. The supplied code uses a 2-pixel starting threshold, up to 10,000 iterations and confidence 0.999.
+
+### 7.3 Uniform spatial selection
+
+The source image is divided into an 8×8 grid. Candidate matches are sorted by confidence, and only the strongest limited number from each cell are retained.
+
+If (C) is the set of occupied grid cells, coverage is:
+
+$$
+\text{Coverage}=\frac{|C|}{64}
+$$
+
+This prevents a large number of redundant points around one high-contrast crater from dominating the homography.
+
+---
+
+## 8. Training loss
+
+The exact synthetic homography maps each source token centre to its correct reference position.
+
+### 8.1 Coarse classification loss
+
+If (t_i) is the reference-grid index containing the transformed source point, the forward negative log-likelihood is:
+
+$$
+\mathcal L_{c}^{s\rightarrow r}
+=-\frac{1}{N_v}\sum_{i\in\mathcal V}\log
+\operatorname{softmax}(S_{i,:})_{t_i}
+$$
+
+where (mathcal V) contains valid points that remain inside the image.
+
+### 8.2 Continuous coordinate loss
+
+The expected reference coordinate is calculated by soft-argmax:
+
+$$
+\hat{\mathbf q}_i=\sum_j
+\operatorname{softmax}(S_{i,:})_j\mathbf g_j
+$$
+
+The fine loss uses Smooth L1 distance from the homography-derived target (mathbf q_i):
+
+$$
+\mathcal L_f^{s\rightarrow r}
+=\frac{1}{N_v}\sum_{i\in\mathcal V}
+\operatorname{SmoothL1}(\hat{\mathbf q}_i-\mathbf q_i)
+$$
+
+### 8.3 Bidirectional total loss
+
+The same calculation is performed with (H^{-1}) in the reverse direction:
+
+$$
+\mathcal L_{dir}=\mathcal L_c+0.05\mathcal L_f
+$$
+
+$$
+\mathcal L=\frac{1}{2}\left(
+\mathcal L_{dir}^{s\rightarrow r}+
+\mathcal L_{dir}^{r\rightarrow s}
+\right)
+$$
+
+Each sample also has a weight. Exact synthetic labels receive full weight, while less certain pseudo-labelled real pairs receive a lower weight.
+
+---
+
+## 9. Perlin-noise illumination model
+
+Perlin noise is used to improve illumination robustness—not as a matching algorithm and not as geometric truth.
+
+### 9.1 Smooth interpolation
+
+The quintic fade function is:
+
+$$
+f(t)=6t^5-15t^4+10t^3
+$$
+
+Random unit gradients are placed at grid corners. Their dot products with local offset vectors are interpolated using (f(t)), producing smooth coherent variation.
+
+### 9.2 Fractal Perlin field
+
+The code combines frequencies 2, 4 and 8 with persistence 0.5:
+
+$$
+N(x,y)=\frac{\sum_{k=0}^{K-1}p^kN_{2^{k+1}}(x,y)}
+{\sum_{k=0}^{K-1}p^k},\qquad p=0.5
+$$
+
+### 9.3 Illumination augmentation
+
+The augmented image is:
+
+$$
+I'(x,y)=\operatorname{clip}\left(
+I(x,y)[1+\alpha N(x,y)]+\beta N(x,y),0,1
+\right)
+$$
+
+with multiplicative strength (alpha\in[0.05,0.25]) and additive strength (eta\in[0.01,0.08]). It is applied with 85% probability along with gamma, contrast, directional lighting, blur and sensor noise.
+
+Because the noise changes only appearance, the original homography labels remain valid.
+
+---
+
+## 10. Sub-pixel refinement
+
+The coarse model operates at stride 16, so its matches require local refinement.
+
+### 10.1 Gradient patches
+
+Sobel derivatives generate gradient magnitude images:
+
+$$
+G=\sqrt{G_x^2+G_y^2}
+$$
+
+Gradients are less sensitive than raw intensity to global brightness offsets.
+
+### 10.2 Normalized cross-correlation
+
+For source patch (A) and reference patch (B):
+
+$$
+NCC(A,B)=
+\frac{\sum(A-\bar A)(B-\bar B)}
+{\sqrt{\sum(A-\bar A)^2\sum(B-\bar B)^2}+\epsilon}
+$$
+
+The implementation searches a ±5 pixel neighbourhood using 15×15 patches.
+
+### 10.3 Fractional peak fitting
+
+If the best discrete score is (s_0), with adjacent scores (s_{-1}) and (s_{+1}), the parabolic offset is:
+
+$$
+\delta=\frac{1}{2}\frac{s_{-1}-s_{+1}}{s_{-1}-2s_0+s_{+1}}
+$$
+
+(delta) is clipped to ([-0.5,0.5]) and calculated independently for (x) and (y). This produces fractional-pixel coordinates.
+
+---
+
+## 11. Evaluation metrics
+
+All important metrics must be reported per sensor pair and per depth of difficulty, not only as one global average.
+
+### Reprojection RMSE
+
+$$
+RMSE=\sqrt{\frac{1}{N}\sum_{i=1}^{N}e_i^2}
+$$
+
+### Median and maximum error
+
+$$
+e_{median}=\operatorname{median}(e_1,\ldots,e_N),\qquad
+e_{max}=\max_i e_i
+$$
+
+Median error is robust to a few extreme points; maximum error reveals worst-case failures.
+
+### Inlier ratio
+
+$$
+\text{Inlier Ratio}=\frac{N_{inlier}}{N_{candidate}}
+$$
+
+### PCK at threshold (t)
+
+$$
+PCK@t=\frac{1}{N}\sum_{i=1}^{N}\mathbf 1[e_i<t]
+$$
+
+Recommended reporting includes PCK@1, PCK@3 and PCK@5.
+
+### Spatial coverage
+
+Coverage is the occupied fraction of the 8×8 image grid. A low-RMSE solution with low coverage should not be accepted as a uniformly registered result.
+
+### Runtime and failure rate
+
+Record processing time, peak memory, percentage of rejected image pairs and reasons for rejection.
+
+---
+
+## 12. Datasets and folder structure
+
+Recommended raw-data layout inside the training kit:
+
+```text
+data/raw/ohrc/
+data/raw/tmc2/
+data/raw/iirs/
+data/raw/lro/
+data/raw/selene/
+```
+
+The complete website package contains:
+
+| File | Purpose |
 |---|---|
-| Source | Your LunarReg GitHub repository |
-| Runtime | Docker |
-| Branch | `main` |
-| Root directory | Leave blank |
-| Dockerfile path | `./Dockerfile.render` |
-| Docker build context | `.` |
-| Health check path | `/api/health` |
+| `downloads/LunarReg-Training-Kit-v1.zip` | PyTorch registration training and inference code |
+| `downloads/training_tiles.zip` | 248 supplied labelled LRO NAC crater tiles |
+| `downloads/lunar_crater_detector.zip` | Supplied YOLOv8n detector weights and prediction script |
+| `downloads/CH3_region_69S_32E_dataset.zip` | Supplied Chandrayaan/LRO regional images and references |
+| `docs/LunarReg_Model_Training_Handoff.pdf` | Detailed mathematical and training handoff |
 
-Optional environment variables:
-
-```text
-MAX_IMAGE_SIDE=2400
-MAX_UPLOAD_BYTES=20971520
-CORS_ORIGINS=*
-```
-
-### Important Render note
-
-The Blueprint starts on Render's free plan so the website and classical registration can be tested without changing the code. The first request after inactivity may be slow. YOLO/PyTorch inference uses substantially more memory than the static website; if crater inference is terminated for memory usage, move the service to a plan with more RAM.
+Important: the crater-training tiles train crater detection, not image registration. Registration requires overlapping source/reference pairs or synthetic transformations with known homographies.
 
 ---
 
-## 4. Run the complete project locally
+## 13. How to train the registration model
 
-Install Docker Desktop, then from the repository root run:
-
-```bash
-docker build -f Dockerfile.render -t lunarreg .
-docker run --rm -p 10000:10000 lunarreg
-```
-
-Open:
-
-```text
-http://localhost:10000
-```
-
-Health endpoint:
-
-```text
-http://localhost:10000/api/health
-```
-
-Interactive FastAPI documentation:
-
-```text
-http://localhost:10000/docs
-```
-
----
-
-## 5. How to use the website
-
-### Image registration
-
-1. Open **Registration console**.
-2. Upload the reference image under **Fixed image**.
-3. Upload the image that must be transformed under **Moving image**.
-4. Select an engine:
-   - **Auto:** uses the Render SIFT service when available.
-   - **Browser baseline:** keeps computation in the browser and estimates translation only.
-   - **SIFT + MAGSAC service:** estimates a projective homography on the server.
-5. Click **Run registration**.
-6. Inspect RMSE, inlier count, inlier ratio, median error, maximum error and spatial coverage.
-7. Download the registered overlay as PNG.
-
-Use **Load included sample** for a quick deployment test.
-
-### Crater detection
-
-1. Scroll to **Explore the supplied crater detector**.
-2. Select a PNG, JPEG or WebP lunar image.
-3. Click **Detect craters**.
-4. The server returns an annotated image, candidate count, confidence values and bounding boxes.
-
-The supplied detector was trained on LRO NAC tiles. Its output on OHRC, TMC-2 or IIRS imagery must be treated as exploratory because of sensor-domain differences.
-
----
-
-## 6. API usage
-
-### Health
-
-```bash
-curl https://YOUR-SERVICE.onrender.com/api/health
-```
-
-### Register two images
-
-```bash
-curl -X POST https://YOUR-SERVICE.onrender.com/api/register \
-  -F "fixed=@reference.png" \
-  -F "moving=@source.png" \
-  -o registration-result.json
-```
-
-The response contains:
-
-- registered overlay as a base64 PNG;
-- 3×3 homography matrix;
-- accepted correspondence coordinates;
-- RMSE and median/max reprojection error;
-- inlier count and inlier ratio;
-- convex-hull spatial coverage.
-
-### Detect craters
-
-```bash
-curl -X POST "https://YOUR-SERVICE.onrender.com/api/detect-craters?confidence=0.25" \
-  -F "image=@lunar-image.png" \
-  -o crater-result.json
-```
-
----
-
-# MODEL TRAINING GUIDE
-
-The downloadable `LunarReg-Training-Kit-v1.zip` is for training the **image-correspondence model**. It is separate from `crater_detector.pt`, which is already a trained one-class crater detector. Render hosts the demonstration and inference service; use a GPU machine or RunPod for training rather than attempting a long training run on the Render web service.
-
-## 7. Training objective
-
-The registration model learns correspondences between a source image (I_s) and a reference image (I_r). The complete system is hybrid:
-
-1. A neural network proposes dense or semi-dense feature correspondences.
-2. Confidence filtering removes weak candidates.
-3. USAC_MAGSAC estimates a geometrically consistent homography.
-4. Local gradient normalized cross-correlation refines coordinates to fractional-pixel positions.
-5. Evaluation measures reprojection accuracy and spatial distribution.
-
-Perlin noise is used only to create smooth synthetic illumination fields. It helps simulate changing Sun angle and broad shadows; it is never used as geometric ground truth.
-
----
-
-## 8. Hardware and storage
-
-Recommended training environment:
-
-- Linux or RunPod PyTorch CUDA template;
-- NVIDIA GPU with at least 16 GB VRAM;
-- 50–100 GB persistent storage;
-- Python 3.10 or 3.11;
-- recent CUDA-compatible PyTorch;
-- stable storage for checkpoints and logs.
-
-The included configurations are:
-
-| GPU/configuration | Config file | Batch | Accumulation |
-|---|---|---:|---:|
-| RTX 5090 | `configs/train_5090.yaml` | 4 | 8 |
-| RTX PRO 5000 | `configs/train_pro5000.yaml` | 6 | 6 |
-| Installation test | `configs/smoke.yaml` | 4 | 1 |
-
-Actual time depends on tile count, storage speed, PyTorch version and validation frequency. Always run the smoke configuration before paying for a long GPU session.
-
----
-
-## 9. Extract and install the training kit
-
-Download `LunarReg-Training-Kit-v1.zip` from the website or use the copy in `downloads/`.
+### 13.1 Extract and install
 
 ```bash
 unzip LunarReg-Training-Kit-v1.zip
@@ -256,90 +518,38 @@ pip install -r requirements.txt
 python scripts/check_environment.py
 ```
 
-On Windows PowerShell, activate with:
+Windows PowerShell activation:
 
 ```powershell
 .venv\Scripts\Activate.ps1
 ```
 
-Verify CUDA:
+CUDA verification:
 
 ```bash
 python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
 ```
 
-Do not start the main run until this prints `True` for CUDA on a GPU machine.
-
----
-
-## 10. Prepare the image data
-
-Place legally obtained images into these directories:
-
-```text
-data/raw/ohrc/
-data/raw/tmc2/
-data/raw/iirs/
-data/raw/lro/
-data/raw/selene/
-```
-
-Keep original PDS/GeoTIFF products and metadata in a separate archive. The training code accepts PNG, JPEG, TIFF and OpenCV-readable GeoTIFF images.
-
-Start with OHRC and LRO. Do not mix every sensor on the first run.
-
-Create 512×512 tiles:
+### 13.2 Create training tiles
 
 ```bash
 python scripts/prepare_tiles.py \
   --input data/raw/ohrc \
   --output data/tiles/ohrc \
-  --size 512 \
-  --overlap 64 \
-  --min-std 0.025
+  --size 512 --overlap 64 --min-std 0.025
 
 python scripts/prepare_tiles.py \
   --input data/raw/lro \
   --output data/tiles/lro \
-  --size 512 \
-  --overlap 64 \
-  --min-std 0.025
+  --size 512 --overlap 64 --min-std 0.025
 ```
 
-`--min-std` rejects nearly blank tiles. Review the output manually and remove corrupted, labelled, border-only or non-overlapping products.
-
-### Prevent data leakage
-
-Split by lunar geography or parent mosaic—not randomly by tiles. Tiles cut from the same crater or mosaic must never appear in both training and testing. Otherwise the reported accuracy will be misleading.
-
-Recommended split:
-
-- 70% geographic regions for training;
-- 15% separate regions for validation;
-- 15% completely unseen regions for final testing.
-
----
-
-## 11. Run the smoke test
-
-The smoke run verifies installation, data loading, forward/backward passes and checkpoint saving. It does not create a useful scientific model.
+### 13.3 Run the mandatory smoke test
 
 ```bash
 python scripts/make_demo_data.py
 python train.py --config configs/smoke.yaml
-```
 
-A successful run creates:
-
-```text
-runs/smoke/best.pt
-runs/smoke/last.pt
-runs/smoke/history.csv
-```
-
-Test inference:
-
-```bash
 python infer.py \
   --checkpoint runs/smoke/best.pt \
   --source data/demo/source.png \
@@ -347,21 +557,9 @@ python infer.py \
   --output runs/demo_inference
 ```
 
-Expected inference outputs:
+The smoke model only verifies installation and code flow. It is not a competition model.
 
-```text
-registered.png
-matches.csv
-matches_preview.png
-metrics.json
-homography.json
-```
-
----
-
-## 12. Train using synthetic geometric supervision
-
-The dataset class generates a fresh homography and photometric transformation for every sample. Photometric augmentation includes smooth Perlin illumination, gamma/contrast changes, blur and noise while geometric labels remain known.
+### 13.4 Start the main GPU run
 
 RTX 5090:
 
@@ -375,13 +573,13 @@ RTX PRO 5000:
 python train.py --config configs/train_pro5000.yaml
 ```
 
-Monitor training:
+Monitor:
 
 ```bash
 tensorboard --logdir runs --bind_all
 ```
 
-Resume after interruption:
+Resume safely:
 
 ```bash
 python train.py \
@@ -389,21 +587,9 @@ python train.py \
   --resume runs/lunar_5090/last.pt
 ```
 
-Never delete `last.pt` while the run is active. Copy `best.pt`, the YAML config and `history.csv` to persistent storage after every important experiment.
+### 13.5 Generate real cross-sensor pseudo-labels
 
----
-
-## 13. Create real OHRC–LRO pseudo-pairs
-
-Synthetic homographies teach geometry, but cross-sensor performance needs real images covering the same lunar location.
-
-Create:
-
-```text
-data/manifests/candidates.csv
-```
-
-Example:
+Create `data/manifests/candidates.csv`:
 
 ```csv
 pair_id,source_path,reference_path,split
@@ -411,7 +597,7 @@ pair_0001,data/tiles/ohrc/ohrc_0001.png,data/tiles/lro/lro_0001.png,train
 pair_0002,data/tiles/ohrc/ohrc_0002.png,data/tiles/lro/lro_0002.png,val
 ```
 
-Generate pseudo-labels with pretrained LoFTR:
+Then run:
 
 ```bash
 python scripts/pseudo_label_loftr.py \
@@ -420,55 +606,22 @@ python scripts/pseudo_label_loftr.py \
   --preview-dir data/pseudo_previews
 ```
 
-Open every preview and reject incorrect pairs. Important checks:
+Inspect every preview. Reject incorrect, concentrated or geometrically distorted pairs before training.
 
-- matches cover several parts of the image;
-- matches lie on the same physical lunar features;
-- homography does not collapse or mirror the image;
-- at least 30 MAGSAC inliers survive;
-- the pair is not duplicated across splits.
+### 13.6 Recommended training curriculum
 
-The supplied main configs mix approximately 70% synthetic samples with 30% accepted real pairs. Pseudo-labelled samples receive lower loss weight because their labels are less reliable.
+1. Complete environment check and smoke run.
+2. Overfit a controlled 100-pair synthetic subset.
+3. Train OHRC synthetic transformations for 10–15 epochs.
+4. Train LRO synthetic transformations for 10–15 epochs.
+5. Generate and manually verify OHRC–LRO pseudo-pairs.
+6. Fine-tune with approximately 70% synthetic and 30% accepted real pairs.
+7. Tune thresholds only on geographically separate validation regions.
+8. Add TMC-2 after OHRC–LRO results stabilise.
+9. Add IIRS last because its spectral appearance differs substantially.
+10. Freeze all settings before final independent evaluation.
 
----
-
-## 14. Recommended training sequence
-
-1. Run the installation checker.
-2. Complete the smoke test.
-3. Overfit approximately 100 synthetic pairs to confirm that the model can learn.
-4. Train OHRC-only synthetic pairs for 10–15 epochs.
-5. Train LRO-only synthetic pairs for 10–15 epochs.
-6. Generate OHRC–LRO pseudo-labels and inspect every preview.
-7. Mix 70% synthetic and 30% accepted real pairs for 5–10 additional epochs.
-8. Tune the MAGSAC threshold on validation data only.
-9. Add TMC-2 after OHRC–LRO results become stable.
-10. Add IIRS last because its spectral appearance differs substantially.
-11. Freeze settings and evaluate exactly once on geographically independent test scenes.
-
----
-
-## 15. Acceptance criteria
-
-Before claiming a useful registration model, verify:
-
-- training and validation loss decrease without strong divergence;
-- the network can overfit a controlled 100-pair subset;
-- held-out synthetic PCK@3 exceeds 90%;
-- real pairs retain at least 30 geometric inliers;
-- accepted matches are spatially distributed instead of concentrated in one crater;
-- median reprojection error is below 1 pixel after local refinement;
-- results remain stable across illumination and scale changes;
-- no parent scene or geographic region is shared across train and test;
-- a naive random-tile split is **not** used—the split must be lunar-geographic.
-
-Sub-pixel accuracy must be calculated from independently verified control points or accurately georeferenced products. A low training loss alone is not evidence of sub-pixel performance.
-
----
-
-## 16. Training outputs and experiment records
-
-Every serious experiment should preserve:
+### 13.7 Training outputs
 
 ```text
 runs/<experiment>/
@@ -479,100 +632,192 @@ runs/<experiment>/
 └── tensorboard/
 ```
 
-Also record:
-
-- Git commit or ZIP version;
-- GPU name and CUDA/PyTorch versions;
-- training regions and excluded test regions;
-- dataset checksums;
-- random seed;
-- number of accepted/rejected pseudo-pairs;
-- final threshold values;
-- validation and test metrics by sensor pair.
-
-This makes results reproducible and defensible during judging.
-
----
-
-## 17. Adding a trained checkpoint to the website
-
-The current deployed registration endpoint uses SIFT + MAGSAC. After training:
-
-1. Select the best checkpoint using geographic validation—not training loss.
-2. Export or copy `best.pt` into `inference-service/models/`.
-3. Add a cached model loader in `inference-service/app.py`.
-4. Add a neural matching stage before MAGSAC.
-5. Keep SIFT as a fallback when the network returns too few distributed matches.
-6. Return the same API response fields so the frontend needs no major change.
-7. Rebuild and redeploy the Docker service.
-8. Update the interface status only after independent benchmark results exist.
-
-Do not overwrite `crater_detector.pt`; it performs a different task.
-
----
-
-## 18. Troubleshooting
-
-### Render says `render.yaml` was not found
-
-The contents were uploaded one folder too deep. `render.yaml`, `index.html` and `Dockerfile.render` must appear at the GitHub repository root.
-
-### Build spends a long time installing packages
-
-This is expected during the first Docker build because Ultralytics installs PyTorch. Later builds may reuse cached layers if `requirements.render.txt` is unchanged.
-
-### The website opens but Auto mode uses browser baseline
-
-Open `/api/model-status`. On the all-in-one Render deployment it should return `"connected": true`. If it does not, confirm that the repository was deployed as a Docker **Web Service**, not a Static Site.
-
-### Registration reports too few matches
-
-- confirm that both images overlap geographically;
-- try similar-scale crops first;
-- avoid frames dominated by black borders or labels;
-- increase local contrast carefully;
-- use images with visible crater texture;
-- do not expect a single homography to correct severe terrain parallax.
-
-### Crater inference stops the free Render service
-
-The PyTorch process may exceed the available memory. Upgrade the service RAM or host only the YOLO endpoint on a larger CPU/GPU instance. The browser and SIFT baseline can continue without loading YOLO because the model is loaded lazily.
-
-### GitHub rejects browser upload
-
-Use GitHub Desktop instead of the browser uploader. All included individual files are below GitHub's normal 100 MB per-file limit.
-
----
-
-## 19. Scientific and licensing notes
-
-- Credit ISRO/ISSDC for Chandrayaan mission imagery.
-- Credit NASA/GSFC/Arizona State University for LROC imagery.
-- The supplied regional archive includes additional paper citations and source notes.
-- The supplied crater dataset is described as 248 LRO NAC tiles originating from Fairweather et al., Zenodo 6386198, under CC BY 4.0.
-- Confirm applicable terms before commercial redistribution.
-- Do not present crater detection as landing-safety certification.
-- Do not infer minerals from generic optical images; calibrated IIRS spectra and a separate validated pipeline are required.
-
----
-
-## 20. Useful project checks
-
-```bash
-# JavaScript syntax
-npm run check
-
-# Python syntax
-python -m py_compile inference-service/app.py
-
-# Verify the website/API container
-docker build -f Dockerfile.render -t lunarreg .
-docker run --rm -p 10000:10000 lunarreg
-curl http://localhost:10000/api/health
-```
-
-For the mathematical derivations, loss functions and detailed training rationale, download:
+Inference produces:
 
 ```text
-docs/LunarReg_Model_Training_Handoff.pdf
+registered.png
+matches.csv
+matches_preview.png
+metrics.json
+homography.json
 ```
+
+---
+
+## 14. Model acceptance criteria
+
+Do not call the trained model successful until:
+
+- it can deliberately overfit a small controlled subset;
+- held-out synthetic PCK@3 exceeds 90%;
+- validation loss does not diverge from training loss;
+- real pairs retain at least 30 MAGSAC inliers;
+- accepted correspondences cover multiple image-grid cells;
+- median independent reprojection error is below one pixel after refinement;
+- results remain stable under illumination and scale changes;
+- no parent mosaic or lunar region crosses the train/test boundary;
+- all claimed sub-pixel results use verified control points or trustworthy georeferencing.
+
+Training loss alone is not evidence of sub-pixel accuracy.
+
+---
+
+## 15. Current website and model status
+
+### Working now
+
+- responsive SIH demonstration interface;
+- local browser translation baseline;
+- server-side SIFT descriptors and Lowe-ratio matching;
+- USAC_MAGSAC homography estimation;
+- real measured metrics and downloadable registered overlay;
+- supplied YOLOv8n crater detector;
+- sample LRO image pair;
+- complete training kit and documentation.
+
+### Requires training/data validation
+
+- learned `LunarDenseMatcher` competition checkpoint;
+- verified OHRC–LRO independent test benchmark;
+- confirmed sub-pixel score on official evaluation data;
+- sensor-specific threshold calibration;
+- optional TMC-2/IIRS domain adaptation.
+
+The website clearly shows the model status and does not display fabricated competition results.
+
+---
+
+## 16. Using a trained checkpoint in the application
+
+1. Select `best.pt` using geographically independent validation.
+2. Copy it to `inference-service/models/lunar_dense_matcher.pt`.
+3. Add a cached PyTorch model loader in `inference-service/app.py`.
+4. Preprocess both inputs exactly as during training.
+5. Obtain mutual neural correspondences.
+6. Apply uniform 8×8 grid selection.
+7. estimate the homography with MAGSAC;
+8. refine inliers using gradient NCC;
+9. return the existing API schema so the frontend does not need redesign;
+10. retain SIFT as a fallback when neural coverage or inlier count is insufficient.
+
+Do not replace `crater_detector.pt`; that checkpoint performs crater detection, not registration.
+
+---
+
+## 17. SIH demonstration flow
+
+For a clear judging demonstration:
+
+1. explain fixed versus moving images;
+2. load the included sample to prove the full website works;
+3. show detected correspondences and spatial coverage;
+4. run SIFT + MAGSAC registration;
+5. explain the homography and rejected outliers;
+6. show the registered overlay and measured errors;
+7. demonstrate crater detection as an additional analysis module;
+8. open the training resources and explain the neural matcher;
+9. demonstrate how Perlin augmentation changes illumination but preserves geometry;
+10. clearly separate current measured results from post-training targets.
+
+Recommended one-line pitch:
+
+> LunarReg learns where the same lunar feature exists across sensors, mathematically verifies those matches, and refines them to fractional-pixel coordinates while remaining robust to changing illumination.
+
+---
+
+## 18. Limitations and responsible claims
+
+- One homography cannot fully model strong local relief displacement or severe parallax.
+- The browser baseline estimates translation only.
+- SIFT is a classical baseline, not the final learned matcher.
+- The supplied crater detector was trained on a small LRO NAC dataset and may not transfer directly to Chandrayaan sensors.
+- A random tile split can produce unrealistically high accuracy.
+- Perlin noise approximates smooth illumination variation; it is not a physical ray-tracing model.
+- Generic optical imagery cannot produce validated mineral composition or landing-safety certification.
+- Official SIH evaluation data must remain untouched until final testing.
+
+---
+
+## 19. Repository structure
+
+```text
+LunarReg/
+├── index.html
+├── assets/
+│   ├── app.js
+│   └── site.css
+├── samples/
+├── docs/
+│   └── LunarReg_Model_Training_Handoff.pdf
+├── downloads/
+│   ├── LunarReg-Training-Kit-v1.zip
+│   ├── training_tiles.zip
+│   ├── lunar_crater_detector.zip
+│   └── CH3_region_69S_32E_dataset.zip
+├── inference-service/
+│   ├── app.py
+│   ├── requirements.render.txt
+│   └── models/crater_detector.pt
+├── Dockerfile.render
+├── Dockerfile
+├── render.yaml
+├── api/
+├── vercel.json
+└── README.md
+```
+
+---
+
+## 20. Data credits
+
+- Chandrayaan mission imagery: ISRO/ISSDC.
+- LROC imagery: NASA/GSFC/Arizona State University.
+- The supplied regional archive contains additional paper references and source notes.
+- The supplied crater material identifies 248 LRO NAC tiles originating from Fairweather et al., Zenodo 6386198, under CC BY 4.0.
+
+Always preserve the source metadata and verify the applicable terms before redistribution.
+
+---
+
+## 21. Final deployment on Render
+
+Deployment is intentionally kept at the end because the scientific pipeline, model and evaluation are the main SIH project.
+
+### GitHub preparation
+
+Extract the project ZIP and copy the files inside the extracted project folder into the root of your GitHub repository. These must be visible at the repository root:
+
+```text
+render.yaml
+Dockerfile
+index.html
+README.md
+inference-service/
+assets/
+downloads/
+```
+
+### One-click Blueprint deployment
+
+1. Push the complete project to the `main` branch.
+2. Open the Render dashboard.
+3. Select **New → Blueprint**.
+4. Connect the LunarReg GitHub repository.
+5. Confirm the `lunarreg` service detected from `render.yaml`.
+6. Apply the Blueprint.
+7. Wait for the first Docker build; PyTorch and Ultralytics make the initial build slower.
+8. Open the generated `onrender.com` URL.
+9. Test **Load included sample** and run registration.
+10. Check `/api/health` if the interface cannot reach the backend.
+
+If you are using an existing manually created Render Web Service, set its runtime to **Docker**, leave **Root Directory** empty, and use `./Dockerfile` as the Dockerfile path. The included root `Dockerfile` also allows Render's default Docker settings to work without a custom path.
+
+The single Render service hosts:
+
+- the website at `/`;
+- status at `/api/model-status`;
+- registration at `/api/register`;
+- crater detection at `/api/detect-craters`;
+- health check at `/api/health`.
+
+The free plan is suitable for an initial demonstration, but PyTorch crater inference may need additional RAM. Registration training should be performed on a dedicated NVIDIA GPU machine or RunPod, not on the Render web service.
