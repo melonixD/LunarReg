@@ -1,0 +1,7 @@
+.git
+.github
+.vercel
+**/__pycache__
+**/*.pyc
+LunarReg-Vercel-Complete-*.zip
+

@@ -14,10 +14,12 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 
 APP_DIR = Path(__file__).resolve().parent
 MODEL_PATH = Path(os.getenv("CRATER_MODEL_PATH", APP_DIR / "models" / "crater_detector.pt"))
+SITE_DIR = Path(os.getenv("SITE_DIR", APP_DIR / "site"))
 MAX_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "2400"))
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
 
@@ -58,6 +60,7 @@ def enhance(gray: np.ndarray) -> np.ndarray:
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {
         "status": "ok",
@@ -67,7 +70,20 @@ def health():
     }
 
 
+@app.get("/api/model-status")
+def model_status():
+    return {
+        "connected": True,
+        "mode": "same-origin-render-inference",
+        "registrationModel": "not-trained",
+        "registrationEngine": "SIFT + ratio test + USAC_MAGSAC",
+        "craterModel": "available" if MODEL_PATH.exists() else "missing",
+        "note": "The classical registration and supplied crater detector are available from this Render service.",
+    }
+
+
 @app.post("/register")
+@app.post("/api/register")
 async def register(fixed: UploadFile = File(...), moving: UploadFile = File(...)):
     fixed_bgr, moving_bgr = await decode_upload(fixed), await decode_upload(moving)
     fixed_gray = enhance(cv2.cvtColor(fixed_bgr, cv2.COLOR_BGR2GRAY))
@@ -139,6 +155,7 @@ def crater_model():
 
 
 @app.post("/detect-craters")
+@app.post("/api/detect-craters")
 async def detect_craters(image: UploadFile = File(...), confidence: float = 0.25):
     frame = await decode_upload(image)
     confidence = max(0.05, min(0.95, confidence))
@@ -156,3 +173,9 @@ async def detect_craters(image: UploadFile = File(...), confidence: float = 0.25
         "boxes": boxes,
         "note": "Exploratory YOLOv8n detector trained on 248 LRO NAC tiles. Results may not transfer directly to Chandrayaan sensors.",
     }
+
+
+# Mount after API routes so the same Render service hosts both the website and
+# compute endpoints. When running the API folder alone, SITE_DIR may not exist.
+if SITE_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(SITE_DIR), html=True), name="site")

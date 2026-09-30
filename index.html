@@ -135,7 +135,7 @@
       <div class="wrap">
         <div class="section-heading">
           <div><span class="kicker">SYSTEM / 02</span><h2>One interface, two compute paths</h2></div>
-          <p>Vercel hosts the user interface and lightweight proxy. GPU-heavy Python inference is intentionally separated so the project remains deployable and transparent.</p>
+          <p>The browser fallback works without a server. On Render, one Docker service hosts this interface, SIFT registration, crater inference, samples and downloads under the same URL.</p>
         </div>
         <div class="flow">
           <article><span>01</span><h3>Prepare</h3><p>Normalize contrast, resize safely, and validate image overlap.</p></article><i>→</i>
